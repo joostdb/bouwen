@@ -110,7 +110,7 @@ function getValidSize(width, base) {
       best = opt;
     }
   }
-  return best || { size: base, type: 'full' };
+  return best; // <-- GEEN fallback
 }
 
 function buildRow(verband, rowIndex, L, D, maxB, sv) {
@@ -171,10 +171,10 @@ function buildRow(verband, rowIndex, L, D, maxB, sv) {
     const rest = maxB - x;
     if (rest < Math.min(0.5 * item.base, 1)) break; // minimale steengrootte
 
-    const valid = getValidSize(rest, item.base);
-    if (valid.size > 0) {
-      stones.push({ x, width: valid.size, isKop: item.isKop, type: valid.type });
-      x += valid.size + sv;
+const valid = getValidSize(rest, item.base);
+if (!valid) break; // <-- stop als niets past
+stones.push({ x, width: valid.size, isKop: item.isKop, type: valid.type });
+x += valid.size + sv;
     }
     idx++;
     if (idx > 100) break;
