@@ -4,13 +4,6 @@
   <meta charset="UTF-8">
   <title>Metselverband Simulator – 3D met Three.js</title>
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-  <script type="module">
-    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js';
-    import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.160.1/examples/jsm/controls/OrbitControls.js';
-
-    window.THREE = THREE;
-    window.OrbitControls = OrbitControls;
-  </script>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -59,17 +52,6 @@
       border: 1px solid #ccc;
       background: #f0f0f0;
     }
-    #json-output {
-      margin-top: 15px;
-      padding: 10px;
-      background: #f8f9fa;
-      border-radius: 4px;
-      white-space: pre-wrap;
-      font-family: monospace;
-      max-height: 300px;
-      overflow: auto;
-      display: none; /* Verberg standaard */
-    }
   </style>
 </head>
 <body>
@@ -103,9 +85,13 @@
 <button id="bereken">Genereer 3D-scène</button>
 <div id="result"></div>
 <div id="scene-container"></div>
-<pre id="json-output"></pre>
 
-<script>
+<!-- Alles in één module-script -->
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js';
+import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.160.1/examples/jsm/controls/OrbitControls.js';
+
+// Hulpfuncties (zelfde als voorheen)
 function getValidSize(width, base) {
   const options = [
     { size: base, type: 'full' },
@@ -178,7 +164,8 @@ function buildRow(verband, rowIndex, L, D, maxB, sv) {
   return stones;
 }
 
-$('#bereken').on('click', function () {
+// jQuery event listener werkt ook in module (via $)
+$('#bereken').on('click', async function () {
   const H = +$('#H').val();
   const B = +$('#B').val();
   const L = +$('#L').val();
@@ -235,28 +222,20 @@ $('#bereken').on('click', function () {
     }
   }
 
-  // Opslaan voor later gebruik in Three.js
-  window.masonryData = {
-    wall: { width: B, height: H },
-    stones: stones3D
-  };
-
-  // Toon resultaat
   const total = count.full + count.threeq + count.half;
   $('#result').html(`✅ ${total} stenen in ${rijen} rijen. 3D-scène wordt geladen...`);
 
-  // Start Three.js-rendering (wacht tot modules geladen zijn)
-  setTimeout(initThreeScene, 100);
+  // Direct renderen na berekening
+  await initThreeScene({ wall: { width: B, height: H }, stones: stones3D });
 });
 
-// --- Three.js Scene ---
-async function initThreeScene() {
+// Three.js scene functie (binnen module scope)
+async function initThreeScene(data) {
   const container = document.getElementById('scene-container');
-  container.innerHTML = ''; // Leeg eerst
+  container.innerHTML = '';
 
-  const { wall, stones } = window.masonryData;
+  const { wall, stones } = data;
 
-  // Scene setup
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xeeeeee);
 
@@ -278,10 +257,10 @@ async function initThreeScene() {
   scene.add(light1);
   scene.add(new THREE.AmbientLight(0x666666));
 
-  // Muurgrens (optioneel)
+  // Muurgrens
   const wallHelper = new THREE.LineSegments(
     new THREE.EdgesGeometry(new THREE.BoxGeometry(wall.width, wall.height, 10)),
-    new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 2 })
+    new THREE.LineBasicMaterial({ color: 0xff0000 })
   );
   wallHelper.position.set(wall.width / 2, wall.height / 2, 5);
   scene.add(wallHelper);
@@ -292,7 +271,6 @@ async function initThreeScene() {
   const matHalf = new THREE.MeshLambertMaterial({ color: 0xb5a570 });
   const matOutside = new THREE.MeshLambertMaterial({ color: 0xff6b6b });
 
-  // Voeg stenen toe
   stones.forEach(stone => {
     const geom = new THREE.BoxGeometry(stone.width, stone.height, stone.depth);
     const mat = stone.isOutside
@@ -310,7 +288,7 @@ async function initThreeScene() {
     scene.add(mesh);
   });
 
-  // Animate
+  // Animatie loop
   function animate() {
     requestAnimationFrame(animate);
     controls.update();
@@ -318,7 +296,6 @@ async function initThreeScene() {
   }
   animate();
 
-  // Herstel bij venstergrootte
   window.addEventListener('resize', () => {
     camera.aspect = container.clientWidth / 500;
     camera.updateProjectionMatrix();
