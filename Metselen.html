@@ -59,7 +59,7 @@
 <body>
 
 <h2>Metselverband Simulator – Wienerberger (Canvas)</h2>
-<p><small>Rechte zijkanten • Alleen 1 / ¾ / ½ stenen • Volledige muur gevuld</small></p>
+<p><small>Rij 0 = onderste rij • Rechte randen • Alleen 1 / ¾ / ½ stenen</small></p>
 
 <div class="input-group">
   <label>Muurhoogte (mm) <input id="H" type="number" value="520" min="50" max="5000"></label>
@@ -68,6 +68,7 @@
   <label>Steen breedte <input id="D" type="number" value="100" min="50" max="200"></label>
   <label>Steen hoogte <input id="h" type="number" value="65" min="30" max="150"></label>
   <label>Lintvoeg <input id="lv" type="number" value="10" min="0" max="30"></label>
+  <label>Lintvoeg onder rij 0 <input id="lv0" type="number" value="10" min="0" max="30"></label>
   <label>Stootvoeg <input id="sv" type="number" value="10" min="0" max="30"></label>
   <label>Verband
     <select id="verband">
@@ -88,12 +89,14 @@
 <canvas id="canvas"></canvas>
 
 <script>
-function drawStone(ctx, x, y, w, h, color, scale) {
+function drawStone(ctx, x, yFromBottom, w, h, color, H, scale) {
+  // yFromBottom = afstand van onderkant muur (in mm)
+  const yCanvas = (H - (yFromBottom + h)) * scale; // want canvas-y = van boven
   ctx.fillStyle = color;
-  ctx.fillRect(x * scale, y * scale, w * scale, h * scale);
+  ctx.fillRect(x * scale, yCanvas, w * scale, h * scale);
   ctx.strokeStyle = '#333';
   ctx.lineWidth = 0.5;
-  ctx.strokeRect(x * scale, y * scale, w * scale, h * scale);
+  ctx.strokeRect(x * scale, yCanvas, w * scale, h * scale);
 }
 
 function getValidSize(width, base) {
@@ -111,7 +114,7 @@ function getValidSize(width, base) {
   return best || { size: base, type: 'full' };
 }
 
-function buildRow(verband, rowIndex, L, D, B, sv) {
+function buildRow(verband, rowIndex, L, D, maxB, sv) {
   const stones = [];
   let x = 0;
   let sequence = [];
@@ -143,12 +146,10 @@ function buildRow(verband, rowIndex, L, D, B, sv) {
       sequence = [{ isKop: false, base: L }, { isKop: false, base: L }, { isKop: true, base: D }];
       break;
     case 'claustra':
-      while (x < B + 500) { // genereer wat extra voor visualisatie
-        if (x + L <= B + 500) {
-          stones.push({ x, width: L, isKop: false, type: 'full' });
-          x += L + sv;
-          x += L + sv; // opening
-        } else break;
+      while (x < maxB + L + sv) {
+        stones.push({ x, width: L, isKop: false, type: 'full' });
+        x += L + sv;
+        x += L + sv; // opening
       }
       return stones;
     default:
@@ -158,97 +159,92 @@ function buildRow(verband, rowIndex, L, D, B, sv) {
   if (verband === 'claustra') return stones;
 
   let idx = 0;
-  while (x < B + 500) { // zorg dat we genoeg genereren om overloop te zien
+  while (x < maxB + L + sv) {
     const item = sequence[idx % sequence.length];
-    const rest = B + 500 - x;
+    const rest = maxB + L + sv - x;
     const valid = getValidSize(rest, item.base);
     stones.push({ x, width: valid.size, isKop: item.isKop, type: valid.type });
     x += valid.size + sv;
     idx++;
-    if (idx > 100) break; // veiligheidslimiet
+    if (idx > 50) break;
   }
   return stones;
 }
 
 $('#bereken').on('click', function () {
-  const H = +$('#H').val();
-  const B = +$('#B').val();
-  const L = +$('#L').val();
-  const D = +$('#D').val();
-  const h = +$('#h').val();
-  const lv = +$('#lv').val(); // normale lintvoeg
+  const H = +$('#H').val();     // totale muurhoogte
+  const B = +$('#B').val();     // muurbreedte
+  const L = +$('#L').val();     // strek (lengte)
+  const D = +$('#D').val();     // kop (breedte)
+  const h = +$('#h').val();     // steenhoogte
+  const lv = +$('#lv').val();   // lintvoeg tussen rijen
+  const lv0 = +$('#lv0').val(); // lintvoeg onder rij 0 (onderste rij)
   const sv = +$('#sv').val();
   const verband = $('#verband').val();
 
-  if ([H, B, L, D, h, lv, sv].some(isNaN) || H <= 0 || B <= 0 || L <= 0 || D <= 0 || h <= 0 || lv < 0 || sv < 0) {
+  if ([H, B, L, D, h, lv, lv0, sv].some(isNaN) || H <= 0 || B <= 0 || L <= 0 || D <= 0 || h <= 0 || lv < 0 || lv0 < 0 || sv < 0) {
     $('#result').html('❌ Fout: alle waarden moeten positief getallen zijn.');
     return;
   }
 
+  // === Bepaal max aantal rijen dat past van onder naar boven ===
+  let rijen = 0;
+  while (true) {
+    // Hoogte nodig voor (rijen + 1) rijen:
+    // = lv0 + (rijen+1)*h + (rijen)*lv
+    const needed = lv0 + (rijen + 1) * h + rijen * lv;
+    if (needed <= H) {
+      rijen++;
+    } else {
+      break;
+    }
+    if (rijen > 200) break;
+  }
+
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('2d');
-  const maxWidthForView = Math.max(B, 1200);
-  const scale = Math.min(canvas.clientWidth / maxWidthForView, 800 / maxWidthForView);
-  canvas.width = maxWidthForView * scale;
-  canvas.height = (H + 200) * scale; // ruimte voor overloop
+  const viewWidth = B + Math.max(L, D) + 100;
+  const scale = Math.min(canvas.clientWidth / viewWidth, 800 / viewWidth);
+  canvas.width = viewWidth * scale;
+  canvas.height = H * scale;
 
-  // === HOOGTE: aantal rijen op basis van ingevoerde lv ===
-  let rijen = 1;
-  let currentHeight = h;
-  while (currentHeight + lv + h <= H) {
-    rijen++;
-    currentHeight += lv + h;
-  }
-  // Optionele lintvoeg onder rij 0: we nemen standaard lv, maar kunnen suggereren
-  const lv0 = lv; // in deze modus: gebruik ingevoerde waarde
-
-  // === Bouw rijen met originele sv ===
-  const allRows = [];
-  const count = { full: 0, threeq: 0, half: 0 };
-
-  for (let r = 0; r < rijen + 2; r++) { // +2 voor visuele overloop
-    const row = buildRow(verband, r, L, D, B, sv);
-    allRows.push(row);
-    for (const s of row) {
-      if (s.x < B + 500) {
-        count[s.type]++;
-      }
-    }
-  }
-
-  // === TEKENEN ===
+  // Teken muurgrens (0,0 = linksonder in mm → canvas: y = H*scale - y_mm*scale)
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // Teken muurgrens
   ctx.strokeStyle = '#ff0000';
   ctx.setLineDash([5, 5]);
   ctx.lineWidth = 1;
   ctx.strokeRect(0, 0, B * scale, H * scale);
   ctx.setLineDash([]);
 
+  const count = { full: 0, threeq: 0, half: 0 };
   const colorMap = { full: '#c2b280', threeq: '#aa9a60', half: '#b5a570' };
 
-  for (let r = 0; r < allRows.length; r++) {
-    const y = r === 0 ? 0 : r * h + (r - 1) * lv + lv0;
-    if (y > H + 200) break;
+  // Teken rijen van onder naar boven (rij 0 = onderste)
+  for (let r = 0; r < rijen; r++) {
+    // yFromBottom = afstand van onderkant tot onderkant van deze rij
+    const yFromBottom = lv0 + r * (h + lv);
+    const row = buildRow(verband, r, L, D, B, sv);
 
-    for (const stone of allRows[r]) {
-      if (stone.x > B + 500) continue;
+    for (const stone of row) {
+      if (stone.x > B + Math.max(L, D) + 50) continue;
 
       const exceedsWidth = stone.x + stone.width > B;
-      const exceedsHeight = y + h > H;
+      const exceedsHeight = yFromBottom + h > H; // zou niet mogen bij correcte rij-berekening, maar veiligheid
       const isOutside = exceedsWidth || exceedsHeight;
 
+      if (!isOutside) {
+        count[stone.type]++;
+      }
+
       const color = isOutside ? '#ff6b6b' : colorMap[stone.type] || '#c2b280';
-      drawStone(ctx, stone.x, y, stone.width, h, color, scale);
+      drawStone(ctx, stone.x, yFromBottom, stone.width, h, color, H, scale);
     }
   }
 
-  // === SUGGESTIES (geen geforceerde wijziging!) ===
+  // === Suggesties ===
   let suggestions = '';
-  let totalStones = count.full + count.threeq + count.half;
 
-  // Suggestie stootvoeg voor exacte breedte (rij 0 met volle stenen)
+  // Stootvoeg suggestie voor rij 0 (onderste rij) met volle stenen
   const base0 = (verband === 'staand' || (verband === 'kruis' && 0 % 2 === 1)) ? D : L;
   let bestSv = null;
   for (let n = 1; n <= Math.ceil(B / base0) + 3; n++) {
@@ -263,30 +259,30 @@ $('#bereken').on('click', function () {
     suggestions += `💡 Voor exacte breedte met volle stenen in rij 0: stootvoeg = ${bestSv.toFixed(1)} mm<br>`;
   }
 
-  // Suggestie lintvoeg onder rij 0 voor exacte hoogte
-  let bestLv0 = null;
-  if (rijen > 1) {
-    const rest = H - rijen * h;
-    if (rest >= 0 && rest <= (rijen - 1) * (h / 2)) {
-      bestLv0 = rest / (rijen - 1);
-      if (Math.abs(bestLv0 - lv) > 0.5) {
-        suggestions += `💡 Voor exacte hoogte: lintvoeg onder rij 0 = ${bestLv0.toFixed(1)} mm (≤½ steen)<br>`;
+  // Suggestie voor lv0 voor exacte hoogte
+  if (rijen > 0) {
+    const usedHeight = lv0 + rijen * h + (rijen - 1) * lv;
+    const diff = H - usedHeight;
+    if (Math.abs(diff) > 0.5) {
+      const newLv0 = lv0 + diff;
+      if (newLv0 >= 0 && newLv0 <= h / 2) {
+        suggestions += `💡 Voor exacte hoogte: pas lintvoeg onder rij 0 aan naar ${newLv0.toFixed(1)} mm (≤½ steen)<br>`;
       }
     }
   }
 
   // Resultaat
-  let resultText = `Ingevoerde waarden: H=${H} mm, B=${B} mm, lv=${lv} mm, sv=${sv} mm<br>`;
-  resultText += `Rijen (binnen hoogte): ${rijen}<br>`;
-  resultText += `Volle stenen: ${count.full}<br>`;
+  const total = count.full + count.threeq + count.half;
+  let resultText = `Ingevoerde waarden:<br>`;
+  resultText += `&nbsp;&nbsp;H=${H} mm, B=${B} mm<br>`;
+  resultText += `&nbsp;&nbsp;lv=${lv} mm, lv0=${lv0} mm, sv=${sv} mm<br><br>`;
+  resultText += `Aantal rijen (van onder): ${rijen}<br>`;
+  resultText += `Volle stenen (binnen muur): ${count.full}<br>`;
   resultText += `¾-stenen: ${count.threeq}<br>`;
   resultText += `Halve stenen: ${count.half}<br>`;
-  resultText += `Totaal: ${totalStones}<br><br>`;
+  resultText += `Totaal binnen muur: ${total}<br><br>`;
 
-  if (suggestions) {
-    resultText += suggestions;
-  }
-
+  if (suggestions) resultText += suggestions;
   resultText += `✅ Rode stenen vallen buiten de muurafmetingen.<br>`;
   resultText += `📏 Gestippelde rechthoek = opgegeven muur (B×H).`;
 
