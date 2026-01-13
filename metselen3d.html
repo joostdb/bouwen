@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <title>Metselverband Simulator – 3D met Three.js</title>
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-  <!-- Three.js UMD (globaal beschikbaar als THREE) -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/examples/js/controls/OrbitControls.js"></script>
   <style>
@@ -99,7 +98,7 @@ function getValidSize(width, base) {
   ];
   let best = null;
   for (const opt of options) {
-    if (opt.size <= width + 0.1 && (!best || opt.size > best.size)) {
+    if (opt.size <= width + 1e-6 && (!best || opt.size > best.size)) {
       best = opt;
     }
   }
@@ -109,57 +108,138 @@ function getValidSize(width, base) {
 function buildRow(verband, rowIndex, L, D, maxB, sv) {
   const stones = [];
   let x = 0;
-  let sequence = [];
+
+  // Rij 0: altijd volledige stenen, geen halve/¾
+  if (rowIndex === 0) {
+    while (x + L <= maxB + 1e-6) {
+      stones.push({ x, width: L, isKop: false, type: 'full' });
+      x += L + sv;
+    }
+    // Geen gedeeltelijke stenen in rij 0 → stoppen bij overschrijding
+    return stones;
+  }
 
   switch (verband) {
     case 'halfsteen':
-      if (rowIndex % 2 === 0) sequence = [{ isKop: false, base: L }];
-      else {
-        stones.push({ x: 0, width: L/2, isKop: false, type: 'half' });
-        x = L/2 + sv;
-        sequence = [{ isKop: false, base: L }];
+      if (rowIndex % 2 === 0) {
+        // Even rij: volledige stenen
+        while (x < maxB - 1e-6) {
+          const rest = maxB - x;
+          const valid = getValidSize(rest, L);
+          if (valid.size < 1e-6) break;
+          stones.push({ x, width: valid.size, isKop: false, type: valid.type });
+          x += valid.size + sv;
+          if (stones.length > 100) break;
+        }
+      } else {
+        // Oneven rij: start met halve steen
+        if (L / 2 <= maxB) {
+          stones.push({ x: 0, width: L / 2, isKop: false, type: 'half' });
+          x = L / 2 + sv;
+        }
+        while (x < maxB - 1e-6) {
+          const rest = maxB - x;
+          const valid = getValidSize(rest, L);
+          if (valid.size < 1e-6) break;
+          stones.push({ x, width: valid.size, isKop: false, type: valid.type });
+          x += valid.size + sv;
+          if (stones.length > 100) break;
+        }
       }
       break;
+
     case 'kruis':
-      if (rowIndex % 2 === 0) sequence = [{ isKop: false, base: L }];
-      else sequence = [{ isKop: true, base: D }];
+      const useKop = rowIndex % 2 === 1;
+      const baseDim = useKop ? D : L;
+      while (x < maxB - 1e-6) {
+        const rest = maxB - x;
+        const valid = getValidSize(rest, baseDim);
+        if (valid.size < 1e-6) break;
+        stones.push({ x, width: valid.size, isKop: useKop, type: valid.type });
+        x += valid.size + sv;
+        if (stones.length > 100) break;
+      }
       break;
+
     case 'stapel':
     case 'wild':
-      sequence = [{ isKop: false, base: L }];
-      break;
-    case 'staand':
-      sequence = [{ isKop: true, base: D }];
-      break;
-    case 'klezoor':
-      sequence = [{ isKop: false, base: L }, { isKop: true, base: D }];
-      break;
-    case 'ketting':
-      sequence = [{ isKop: false, base: L }, { isKop: false, base: L }, { isKop: true, base: D }];
-      break;
-    case 'claustra':
-      while (x < maxB + L + sv) {
-        stones.push({ x, width: L, isKop: false, type: 'full' });
-        x += L + sv;
-        x += L + sv;
+      while (x < maxB - 1e-6) {
+        const rest = maxB - x;
+        const valid = getValidSize(rest, L);
+        if (valid.size < 1e-6) break;
+        stones.push({ x, width: valid.size, isKop: false, type: valid.type });
+        x += valid.size + sv;
+        if (stones.length > 100) break;
       }
-      return stones;
+      break;
+
+    case 'staand':
+      while (x < maxB - 1e-6) {
+        const rest = maxB - x;
+        const valid = getValidSize(rest, D);
+        if (valid.size < 1e-6) break;
+        stones.push({ x, width: valid.size, isKop: true, type: valid.type });
+        x += valid.size + sv;
+        if (stones.length > 100) break;
+      }
+      break;
+
+    case 'klezoor':
+      let klezoorIdx = 0;
+      while (x < maxB - 1e-6) {
+        const isKop = klezoorIdx % 2 === 1;
+        const base = isKop ? D : L;
+        const rest = maxB - x;
+        const valid = getValidSize(rest, base);
+        if (valid.size < 1e-6) break;
+        stones.push({ x, width: valid.size, isKop, type: valid.type });
+        x += valid.size + sv;
+        klezoorIdx++;
+        if (stones.length > 100) break;
+      }
+      break;
+
+    case 'ketting':
+      let kettingIdx = 0;
+      while (x < maxB - 1e-6) {
+        const pattern = [false, false, true]; // L, L, D
+        const isKop = pattern[kettingIdx % 3];
+        const base = isKop ? D : L;
+        const rest = maxB - x;
+        const valid = getValidSize(rest, base);
+        if (valid.size < 1e-6) break;
+        stones.push({ x, width: valid.size, isKop, type: valid.type });
+        x += valid.size + sv;
+        kettingIdx++;
+        if (stones.length > 100) break;
+      }
+      break;
+
+    case 'claustra':
+      while (x < maxB - 1e-6) {
+        // Eén claustra-eenheid = steen + dubbele stootvoeg + steen
+        if (x + L <= maxB + 1e-6) {
+          stones.push({ x, width: L, isKop: false, type: 'full' });
+          x += L + sv;
+        } else {
+          break;
+        }
+        x += L + sv; // Overslaan van tweede positie
+        if (stones.length > 100) break;
+      }
+      break;
+
     default:
-      sequence = [{ isKop: false, base: L }];
+      while (x < maxB - 1e-6) {
+        const rest = maxB - x;
+        const valid = getValidSize(rest, L);
+        if (valid.size < 1e-6) break;
+        stones.push({ x, width: valid.size, isKop: false, type: valid.type });
+        x += valid.size + sv;
+        if (stones.length > 100) break;
+      }
   }
 
-  if (verband === 'claustra') return stones;
-
-  let idx = 0;
-  while (x < maxB + L + sv) {
-    const item = sequence[idx % sequence.length];
-    const rest = maxB + L + sv - x;
-    const valid = getValidSize(rest, item.base);
-    stones.push({ x, width: valid.size, isKop: item.isKop, type: valid.type });
-    x += valid.size + sv;
-    idx++;
-    if (idx > 50) break;
-  }
   return stones;
 }
 
@@ -180,11 +260,15 @@ $('#bereken').on('click', function () {
     return;
   }
 
-  // Aantal rijen
+  // Aantal rijen berekenen
   let rijen = 0;
   while (true) {
     const needed = lv0 + (rijen + 1) * h + rijen * lv;
-    if (needed <= H) { rijen++; } else { break; }
+    if (needed <= H + 1e-6) {
+      rijen++;
+    } else {
+      break;
+    }
     if (rijen > 200) break;
   }
 
@@ -198,10 +282,12 @@ $('#bereken').on('click', function () {
       const depth = stone.isKop ? L : D;
       const width = stone.width;
       const x = stone.x;
-      const exceedsWidth = x + width > B;
-      const exceedsHeight = y + h > H;
+      const exceedsWidth = x + width > B + 1e-6;
+      const exceedsHeight = y + h > H + 1e-6;
       const isOutside = exceedsWidth || exceedsHeight;
-      if (!isOutside) count[stone.type]++;
+      if (!isOutside && ['full', 'threeq', 'half'].includes(stone.type)) {
+        count[stone.type]++;
+      }
       stones3D.push({ x, y, z: 0, width, depth, height: h, type: stone.type, isOutside });
     }
   }
@@ -209,11 +295,10 @@ $('#bereken').on('click', function () {
   const total = count.full + count.threeq + count.half;
   $('#result').html(`✅ ${total} stenen in ${rijen} rijen. 3D-scène wordt geladen...`);
 
-  // Render scene
   renderScene({ wall: { width: B, height: H }, stones: stones3D });
 });
 
-// --- Three.js Scene (gebruikt globale THREE) ---
+// --- Three.js Scene ---
 function renderScene(data) {
   const container = document.getElementById('scene-container');
   container.innerHTML = '';
@@ -235,13 +320,11 @@ function renderScene(data) {
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
 
-  // Licht
   const light = new THREE.DirectionalLight(0xffffff, 1);
   light.position.set(1, 2, 3);
   scene.add(light);
   scene.add(new THREE.AmbientLight(0x666666));
 
-  // Muurgrens
   const wallBox = new THREE.LineSegments(
     new THREE.EdgesGeometry(new THREE.BoxGeometry(wall.width, wall.height, 10)),
     new THREE.LineBasicMaterial({ color: 0xff0000 })
@@ -249,7 +332,6 @@ function renderScene(data) {
   wallBox.position.set(wall.width / 2, wall.height / 2, 5);
   scene.add(wallBox);
 
-  // Materialen
   const matFull = new THREE.MeshLambertMaterial({ color: 0xc2b280 });
   const matThreeQ = new THREE.MeshLambertMaterial({ color: 0xaa9a60 });
   const matHalf = new THREE.MeshLambertMaterial({ color: 0xb5a570 });
@@ -266,7 +348,6 @@ function renderScene(data) {
     scene.add(mesh);
   });
 
-  // Animatie
   function animate() {
     requestAnimationFrame(animate);
     controls.update();
