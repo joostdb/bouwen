@@ -113,108 +113,182 @@ function getValidSize(width, base) {
   return best;
 }
 
-// Nieuwe versie met sharedCustomSize
-function buildRow(verband, rowIndex, L, D, maxB, sv, sharedCustomSize = null) {
+function buildRow(verband, rowIndex, L, D, maxB, sv) {
   const stones = [];
   let x = 0;
-  let sequence = [];
+  let items = [];
 
+  // Bepaal de sequentie van stenen voor deze rij
   switch (verband) {
     case 'halfsteen':
-      if (rowIndex % 2 === 0) {
-        sequence = [{ isKop: false, base: L }];
-      } else {
+      if (rowIndex % 2 === 1) {
+        // Oneven rij: begin met halve steen
         if (L / 2 <= maxB) {
           stones.push({ x: 0, width: L / 2, isKop: false, type: 'half' });
           x = L / 2 + sv;
         } else {
           return stones;
         }
-        sequence = [{ isKop: false, base: L }];
+      }
+      // Beide rijen: vul met volle lengtestenen
+      while (x < maxB) {
+        items.push({ isKop: false, base: L });
+        const rest = maxB - x;
+        if (rest < 0.5 * L) break;
+        const valid = getValidSize(rest, L);
+        if (!valid) break;
+        stones.push({ x, width: valid.size, isKop: false, type: valid.type });
+        x += valid.size + sv;
       }
       break;
+
     case 'kruis':
-      if (rowIndex % 2 === 0) {
-        sequence = [{ isKop: false, base: L }];
-      } else {
-        sequence = [{ isKop: true, base: D }];
+      const useKop = (rowIndex % 2 === 1);
+      const base = useKop ? D : L;
+      while (x < maxB) {
+        const rest = maxB - x;
+        if (rest < 0.5 * base) break;
+        const valid = getValidSize(rest, base);
+        if (!valid) break;
+        stones.push({ x, width: valid.size, isKop: useKop, type: valid.type });
+        x += valid.size + sv;
       }
       break;
+
     case 'stapel':
     case 'wild':
-      sequence = [{ isKop: false, base: L }];
+      while (x < maxB) {
+        const rest = maxB - x;
+        if (rest < 0.5 * L) break;
+        const valid = getValidSize(rest, L);
+        if (!valid) break;
+        stones.push({ x, width: valid.size, isKop: false, type: valid.type });
+        x += valid.size + sv;
+      }
       break;
+
     case 'staand':
-      sequence = [{ isKop: true, base: D }];
+      while (x < maxB) {
+        const rest = maxB - x;
+        if (rest < 0.5 * D) break;
+        const valid = getValidSize(rest, D);
+        if (!valid) break;
+        stones.push({ x, width: valid.size, isKop: true, type: valid.type });
+        x += valid.size + sv;
+      }
       break;
+
     case 'klezoor':
-      sequence = [{ isKop: false, base: L }, { isKop: true, base: D }];
+      let idx = 0;
+      while (x < maxB) {
+        const pattern = [ { isKop: false, base: L }, { isKop: true, base: D } ];
+        const item = pattern[idx % 2];
+        const rest = maxB - x;
+        if (rest < Math.min(0.5 * item.base, 1)) break;
+        const valid = getValidSize(rest, item.base);
+        if (!valid) break;
+        stones.push({ x, width: valid.size, isKop: item.isKop, type: valid.type });
+        x += valid.size + sv;
+        idx++;
+      }
       break;
+
     case 'ketting':
-      sequence = [{ isKop: false, base: L }, { isKop: false, base: L }, { isKop: true, base: D }];
+      idx = 0;
+      while (x < maxB) {
+        const pattern = [
+          { isKop: false, base: L },
+          { isKop: false, base: L },
+          { isKop: true, base: D }
+        ];
+        const item = pattern[idx % 3];
+        const rest = maxB - x;
+        if (rest < Math.min(0.5 * item.base, 1)) break;
+        const valid = getValidSize(rest, item.base);
+        if (!valid) break;
+        stones.push({ x, width: valid.size, isKop: item.isKop, type: valid.type });
+        x += valid.size + sv;
+        idx++;
+      }
       break;
+
     case 'claustra':
       while (x < maxB) {
         if (x + L <= maxB) {
           stones.push({ x, width: L, isKop: false, type: 'full' });
         }
         x += L + sv;
-        x += L + sv;
+        x += L + sv; // opening
       }
       return stones;
+
     default:
-      sequence = [{ isKop: false, base: L }];
-  }
-
-  if (verband === 'claustra') return stones;
-
-  let idx = 0;
-  while (x < maxB) {
-    const item = sequence[idx % sequence.length];
-    const rest = maxB - x;
-    if (rest < Math.min(0.5 * item.base, 1)) break;
-
-    const valid = getValidSize(rest, item.base);
-    if (!valid) break;
-
-    stones.push({ x, width: valid.size, isKop: item.isKop, type: valid.type });
-    x += valid.size + sv;
-    idx++;
-    if (idx > 100) break;
-  }
-
-  // >>> VUL REST OP <<<
-  const remaining = maxB - x;
-  if (remaining > 0.1 && stones.length > 0) {
-    const last = stones[stones.length - 1];
-    const lastBase = last.isKop ? D : L;
-    const minAllowed = 0.25 * lastBase;
-
-    // Kijk of we een shared custom size kunnen gebruiken
-    let useShared = false;
-    if (sharedCustomSize !== null && !last.isKop) {
-      // Alleen voor lengtestenen (isKop=false), en als het past
-      if (sharedCustomSize >= minAllowed && sharedCustomSize <= lastBase) {
-        useShared = true;
+      while (x < maxB) {
+        const rest = maxB - x;
+        if (rest < 0.5 * L) break;
+        const valid = getValidSize(rest, L);
+        if (!valid) break;
+        stones.push({ x, width: valid.size, isKop: false, type: valid.type });
+        x += valid.size + sv;
       }
-    }
+  }
 
-    if (useShared) {
-      // Gebruik gedeelde custom maat
-      stones[stones.length - 1] = { ...last, width: sharedCustomSize, type: 'custom' };
+  // >>> NU: ZORG VOOR RECHTE RAND <<<
+  const currentEnd = stones.length > 0 ? (stones[stones.length - 1].x + stones[stones.length - 1].width) : 0;
+  const gap = maxB - currentEnd;
+
+  if (Math.abs(gap) < 0.1) {
+    // Perfect
+    return stones;
+  }
+
+  if (gap > 0.1) {
+    // Er is ruimte over
+    if (stones.length === 0) {
+      // Geen stenen → plaats één aangepaste volle steen (lengte of kop afhankelijk van verband)
+      const base = (verband === 'staand' || (verband === 'kruis' && rowIndex % 2 === 1)) ? D : L;
+      const width = Math.min(gap, base);
+      const isKop = (base === D);
+      if (width >= 0.25 * base) {
+        stones.push({ x: 0, width, isKop, type: 'custom' });
+      }
     } else {
-      // Gebruik lokale logica
-      if (remaining >= minAllowed && remaining <= last.width) {
-        stones[stones.length - 1] = { ...last, width: remaining, type: 'custom' };
-      } else if (remaining < minAllowed) {
+      const last = stones[stones.length - 1];
+      const base = last.isKop ? D : L;
+      const minAllowed = 0.25 * base;
+
+      if (gap >= minAllowed) {
+        // Vervang laatste steen door een die tot B reikt
+        const newWidth = last.width + gap;
+        if (newWidth <= base) {
+          stones[stones.length - 1] = { ...last, width: newWidth, type: 'custom' };
+        } else {
+          // Niet toegestaan om groter te zijn → hou origineel (zeldzaam)
+        }
+      } else {
+        // Gap te klein: verwijder laatste steen en vul tot B met één aangepaste volle steen
         stones.pop();
         const newStart = last.x;
-        const newSpace = maxB - newStart;
-        if (newSpace >= minAllowed && newSpace <= lastBase) {
-          stones.push({ x: newStart, width: newSpace, isKop: last.isKop, type: 'custom' });
+        const newWidth = maxB - newStart;
+        const newBase = last.isKop ? D : L;
+        if (newWidth >= 0.25 * newBase && newWidth <= newBase) {
+          stones.push({ x: newStart, width: newWidth, isKop: last.isKop, type: 'custom' });
         } else {
+          // Fallback: plaats origineel terug
           stones.push(last);
         }
+      }
+    }
+  } else if (gap < -0.1) {
+    // Rij loopt over → dit mag niet gebeuren, maar corrigeer veilig
+    if (stones.length > 0) {
+      const last = stones[stones.length - 1];
+      const newWidth = last.width + gap; // gap is negatief
+      const base = last.isKop ? D : L;
+      if (newWidth >= 0.25 * base) {
+        stones[stones.length - 1] = { ...last, width: newWidth, type: 'custom' };
+      } else {
+        stones.pop(); // verwijder
       }
     }
   }
