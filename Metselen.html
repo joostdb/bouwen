@@ -171,16 +171,16 @@ function buildRow(verband, rowIndex, L, D, maxB, sv) {
 
     const valid = getValidSize(rest, item.base);
     if (!valid) break;
+
     stones.push({ x, width: valid.size, isKop: item.isKop, type: valid.type });
     x += valid.size + sv;
     idx++;
     if (idx > 100) break;
   }
 
-  // >>> NIEUW: vul resterende ruimte op met custom steen <<<
+  // Vul resterende ruimte op met custom steen
   const remaining = maxB - x;
   if (remaining > 0.1) {
-    // Voeg één custom steen toe om de muur exact te vullen
     stones.push({ x, width: remaining, isKop: false, type: 'custom' });
   }
 
