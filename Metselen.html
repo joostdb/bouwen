@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Metselverband Simulator – Wienerberger Canvas</title>
-  <script src="https://code.jquery.com/jquery-3.7.1.min.js  "></script>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -59,7 +59,7 @@
 <body>
 
 <h2>Metselverband Simulator – Wienerberger (Canvas)</h2>
-<p><small>Rij 0 = onderste rij • Rechte randen • Alleen 1 / ¾ / ½ stenen</small></p>
+<p><small>Rij 0 = onderste rij • Rechte randen • Alleen 1 / ¾ / ½ stenen + custom rest</small></p>
 
 <div class="input-group">
   <label>Muurhoogte (mm) <input id="H" type="number" value="520" min="50" max="5000"></label>
@@ -122,12 +122,10 @@ function buildRow(verband, rowIndex, L, D, maxB, sv) {
     case 'halfsteen':
       if (rowIndex % 2 === 0) sequence = [{ isKop: false, base: L }];
       else {
-        // Begin met halve steen als er ruimte is
         if (L/2 <= maxB) {
           stones.push({ x: 0, width: L/2, isKop: false, type: 'half' });
           x = L/2 + sv;
         } else {
-          // Geen ruimte → stop
           return stones;
         }
         sequence = [{ isKop: false, base: L }];
@@ -156,7 +154,7 @@ function buildRow(verband, rowIndex, L, D, maxB, sv) {
           stones.push({ x, width: L, isKop: false, type: 'full' });
         }
         x += L + sv;
-        x += L + sv; // opening
+        x += L + sv;
       }
       return stones;
     default:
@@ -169,16 +167,23 @@ function buildRow(verband, rowIndex, L, D, maxB, sv) {
   while (x < maxB) {
     const item = sequence[idx % sequence.length];
     const rest = maxB - x;
-    if (rest < Math.min(0.5 * item.base, 1)) break; // minimale steengrootte
+    if (rest < Math.min(0.5 * item.base, 1)) break;
 
-const valid = getValidSize(rest, item.base);
-if (!valid) break; // <-- stop als niets past
-stones.push({ x, width: valid.size, isKop: item.isKop, type: valid.type });
-x += valid.size + sv;
-    }
+    const valid = getValidSize(rest, item.base);
+    if (!valid) break;
+    stones.push({ x, width: valid.size, isKop: item.isKop, type: valid.type });
+    x += valid.size + sv;
     idx++;
     if (idx > 100) break;
   }
+
+  // >>> NIEUW: vul resterende ruimte op met custom steen <<<
+  const remaining = maxB - x;
+  if (remaining > 0.1) {
+    // Voeg één custom steen toe om de muur exact te vullen
+    stones.push({ x, width: remaining, isKop: false, type: 'custom' });
+  }
+
   return stones;
 }
 
@@ -198,7 +203,6 @@ $('#bereken').on('click', function () {
     return;
   }
 
-  // Bepaal aantal rijen dat past
   let rijen = 0;
   while (true) {
     const needed = lv0 + (rijen + 1) * h + rijen * lv;
@@ -224,27 +228,36 @@ $('#bereken').on('click', function () {
   ctx.strokeRect(0, 0, B * scale, H * scale);
   ctx.setLineDash([]);
 
-  const count = { full: 0, threeq: 0, half: 0 };
-  const colorMap = { full: '#c2b280', threeq: '#aa9a60', half: '#b5a570' };
+  const count = { full: 0, threeq: 0, half: 0, custom: 0 };
+  const customSizes = {}; // breedte → aantal
+  const colorMap = { 
+    full: '#c2b280', 
+    threeq: '#aa9a60', 
+    half: '#b5a570',
+    custom: '#d9534f' // rood voor custom
+  };
 
   for (let r = 0; r < rijen; r++) {
     const yFromBottom = lv0 + r * (h + lv);
-    // Stop als de bovenkant van de rij boven de muur uitkomt
     if (yFromBottom + h > H) continue;
 
     const row = buildRow(verband, r, L, D, B, sv);
 
     for (const stone of row) {
-      // Controleer expliciet of de steen binnen de muur valt
-      if (stone.x >= 0 && stone.x + stone.width <= B) {
-        count[stone.type]++;
-        drawStone(ctx, stone.x, yFromBottom, stone.width, h, colorMap[stone.type], H, scale);
+      if (stone.x >= 0 && stone.x + stone.width <= B + 0.1) {
+        if (stone.type === 'custom') {
+          count.custom++;
+          const wRounded = Math.round(stone.width * 10) / 10; // afronden op 0.1 mm
+          customSizes[wRounded] = (customSizes[wRounded] || 0) + 1;
+          drawStone(ctx, stone.x, yFromBottom, stone.width, h, colorMap.custom, H, scale);
+        } else {
+          count[stone.type]++;
+          drawStone(ctx, stone.x, yFromBottom, stone.width, h, colorMap[stone.type], H, scale);
+        }
       }
-      // Stenen buiten worden genegeerd (niet getekend, niet geteld)
     }
   }
 
-  // Suggesties
   let suggestions = '';
   const base0 = (verband === 'staand' || (verband === 'kruis' && 0 % 2 === 1)) ? D : L;
   let bestSv = null;
@@ -271,7 +284,7 @@ $('#bereken').on('click', function () {
     }
   }
 
-  const total = count.full + count.threeq + count.half;
+  const total = count.full + count.threeq + count.half + count.custom;
   let resultText = `Ingevoerde waarden:<br>`;
   resultText += `&nbsp;&nbsp;H=${H} mm, B=${B} mm<br>`;
   resultText += `&nbsp;&nbsp;lv=${lv} mm, lv0=${lv0} mm, sv=${sv} mm<br><br>`;
@@ -279,11 +292,24 @@ $('#bereken').on('click', function () {
   resultText += `Volle stenen (binnen muur): ${count.full}<br>`;
   resultText += `¾-stenen: ${count.threeq}<br>`;
   resultText += `Halve stenen: ${count.half}<br>`;
+  
+  // >>> NIEUW: toon custom stenen in legende <<<
+  if (count.custom > 0) {
+    resultText += `Aangepaste stenen (op maat): ${count.custom}<br>`;
+    const sizeList = Object.keys(customSizes).sort((a,b) => parseFloat(a) - parseFloat(b));
+    for (const w of sizeList) {
+      resultText += `&nbsp;&nbsp;• ${w} mm: ${customSizes[w]}×<br>`;
+    }
+  }
+  
   resultText += `Totaal binnen muur: ${total}<br><br>`;
 
   if (suggestions) resultText += suggestions;
   resultText += `✅ Alleen stenen binnen de muur (gestippeld kader) worden getoond en geteld.<br>`;
-  resultText += `📏 Gestippelde rechthoek = opgegeven muur (B×H).`;
+  resultText += `📏 Gestippelde rechthoek = opgegeven muur (B×H).<br>`;
+  if (count.custom > 0) {
+    resultText += `⚠️ Rode stenen = afgezaagd op maat (geen standaardformaat).`;
+  }
 
   $('#result').html(resultText);
 });
