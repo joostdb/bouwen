@@ -62,7 +62,7 @@
 <p><small>Rij 0 = onderste rij • Rechte randen • Alleen 1 / ¾ / ½ stenen + custom rest</small></p>
 
 <div class="input-group">
-  <label>Muurhoogte (mm) <input id="H" type="number" value="1082" min="50" max="5000"></label>
+  <label>Muurhoogte (mm) <input id="H" type="number" value="1080" min="50" max="5000"></label>
   <label>Muurbreedte (mm) <input id="B" type="number" value="1000" min="100" max="5000"></label>
   <label>Steen lengte <input id="L" type="number" value="210" min="100" max="400"></label>
   <label>Steen breedte <input id="D" type="number" value="100" min="50" max="200"></label>
@@ -110,10 +110,11 @@ function getValidSize(width, base) {
       best = opt;
     }
   }
-  return best; // <-- GEEN fallback
+  return best;
 }
 
-function buildRow(verband, rowIndex, L, D, maxB, sv) {
+// Nieuwe versie met sharedCustomSize
+function buildRow(verband, rowIndex, L, D, maxB, sv, sharedCustomSize = null) {
   const stones = [];
   let x = 0;
   let sequence = [];
@@ -182,31 +183,40 @@ function buildRow(verband, rowIndex, L, D, maxB, sv) {
     if (idx > 100) break;
   }
 
-  // >>> VUL REST OP MET BEHOUD VAN ALLE REGELS <<<
+  // >>> VUL REST OP <<<
   const remaining = maxB - x;
   if (remaining > 0.1 && stones.length > 0) {
     const last = stones[stones.length - 1];
-    const lastBase = last.isKop ? D : L; // cruciaal!
+    const lastBase = last.isKop ? D : L;
     const minAllowed = 0.25 * lastBase;
 
-    if (remaining >= minAllowed && remaining <= last.width) {
-      // Afzagen toegestaan
-      stones[stones.length - 1] = { ...last, width: remaining, type: 'custom' };
-    } else if (remaining < minAllowed) {
-      // Te klein: verwijder laatste steen
-      stones.pop();
-      const newStart = last.x;
-      const newSpace = maxB - newStart;
-      const fullSize = lastBase; // juiste basis!
-
-      if (newSpace >= minAllowed && newSpace <= fullSize) {
-        stones.push({ x: newStart, width: newSpace, isKop: last.isKop, type: 'custom' });
-      } else {
-        // Kan niet veilig vullen → hou origineel (of laat leeg, maar we kiezen origineel)
-        stones.push(last);
+    // Kijk of we een shared custom size kunnen gebruiken
+    let useShared = false;
+    if (sharedCustomSize !== null && !last.isKop) {
+      // Alleen voor lengtestenen (isKop=false), en als het past
+      if (sharedCustomSize >= minAllowed && sharedCustomSize <= lastBase) {
+        useShared = true;
       }
     }
-    // Als remaining > last.width: NIET vergroten → laat onaangetast
+
+    if (useShared) {
+      // Gebruik gedeelde custom maat
+      stones[stones.length - 1] = { ...last, width: sharedCustomSize, type: 'custom' };
+    } else {
+      // Gebruik lokale logica
+      if (remaining >= minAllowed && remaining <= last.width) {
+        stones[stones.length - 1] = { ...last, width: remaining, type: 'custom' };
+      } else if (remaining < minAllowed) {
+        stones.pop();
+        const newStart = last.x;
+        const newSpace = maxB - newStart;
+        if (newSpace >= minAllowed && newSpace <= lastBase) {
+          stones.push({ x: newStart, width: newSpace, isKop: last.isKop, type: 'custom' });
+        } else {
+          stones.push(last);
+        }
+      }
+    }
   }
 
   return stones;
@@ -239,6 +249,17 @@ $('#bereken').on('click', function () {
     if (rijen > 200) break;
   }
 
+  // >>> STAP 1: bouw rij 0 en bepaal sharedCustomSize <<<
+  let sharedCustomSize = null;
+  const row0 = buildRow(verband, 0, L, D, B, sv, null);
+  // Zoek laatste steen van rij 0
+  if (row0.length > 0) {
+    const last0 = row0[row0.length - 1];
+    if (last0.type === 'custom' && !last0.isKop) {
+      sharedCustomSize = last0.width;
+    }
+  }
+
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('2d');
   const viewWidth = B + 50;
@@ -254,25 +275,27 @@ $('#bereken').on('click', function () {
   ctx.setLineDash([]);
 
   const count = { full: 0, threeq: 0, half: 0, custom: 0 };
-  const customSizes = {}; // breedte → aantal
+  const customSizes = {};
   const colorMap = { 
     full: '#c2b280', 
     threeq: '#aa9a60', 
     half: '#b5a570',
-    custom: '#d9534f' // rood voor custom
+    custom: '#d9534f'
   };
 
+  // >>> STAP 2: bouw alle rijen, met sharedCustomSize <<<
   for (let r = 0; r < rijen; r++) {
     const yFromBottom = lv0 + r * (h + lv);
     if (yFromBottom + h > H) continue;
 
-    const row = buildRow(verband, r, L, D, B, sv);
+    const useShared = (r > 0) ? sharedCustomSize : null;
+    const row = buildRow(verband, r, L, D, B, sv, useShared);
 
     for (const stone of row) {
       if (stone.x >= 0 && stone.x + stone.width <= B + 0.1) {
         if (stone.type === 'custom') {
           count.custom++;
-          const wRounded = Math.round(stone.width * 10) / 10; // afronden op 0.1 mm
+          const wRounded = Math.round(stone.width * 10) / 10;
           customSizes[wRounded] = (customSizes[wRounded] || 0) + 1;
           drawStone(ctx, stone.x, yFromBottom, stone.width, h, colorMap.custom, H, scale);
         } else {
@@ -283,6 +306,7 @@ $('#bereken').on('click', function () {
     }
   }
 
+  // >>> Suggesties en resultaat (onveranderd) <<<
   let suggestions = '';
   const base0 = (verband === 'staand' || (verband === 'kruis' && 0 % 2 === 1)) ? D : L;
   let bestSv = null;
@@ -318,7 +342,6 @@ $('#bereken').on('click', function () {
   resultText += `¾-stenen: ${count.threeq}<br>`;
   resultText += `Halve stenen: ${count.half}<br>`;
   
-  // >>> NIEUW: toon custom stenen in legende <<<
   if (count.custom > 0) {
     resultText += `Aangepaste stenen (op maat): ${count.custom}<br>`;
     const sizeList = Object.keys(customSizes).sort((a,b) => parseFloat(a) - parseFloat(b));
