@@ -178,17 +178,12 @@ function buildRow(verband, rowIndex, L, D, maxB, sv) {
     if (idx > 100) break;
   }
 
-  // >>> PAS AAN: vervang laatste steen om exact B te halen <<<
-  if (stones.length > 0) {
-    const last = stones[stones.length - 1];
-    const requiredWidth = maxB - last.x;
-    if (requiredWidth > 0 && Math.abs(requiredWidth - last.width) > 0.1) {
-      stones[stones.length - 1] = { x: last.x, width: requiredWidth, isKop: last.isKop, type: 'custom' };
-    }
-  } else if (x < maxB) {
-    // Geen stenen geplaatst, maar wel ruimte → één custom steen
-    const baseItem = sequence[0];
-    stones.push({ x: 0, width: maxB, isKop: baseItem.isKop, type: 'custom' });
+  // >>> VUL REST OP MET CUSTOM, MAAR ALLEEN ALS HET EEN AFZAGING IS (dus ≤ toegestaan formaat) <<<
+  const remaining = maxB - x;
+  if (remaining > 0.1 && stones.length > 0) {
+    // We voegen geen losse steen toe, maar we weten dat remaining < 0.5 * base
+    // Dus het is veilig om af te zagen van een halve steen
+    stones.push({ x, width: remaining, isKop: false, type: 'custom' });
   }
 
   return stones;
