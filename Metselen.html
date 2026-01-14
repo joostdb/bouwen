@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Metselverband Simulator – Wienerberger Canvas</title>
-  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js  "></script>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -98,22 +98,19 @@ function drawStone(ctx, x, yFromBottom, w, h, color, H, scale) {
   ctx.strokeRect(x * scale, yCanvas, w * scale, h * scale);
 }
 
-// Geeft toegestane stengrootte dichtst bij 'target', maar ≤ target indien possible
-// Retourneert object met size en type, of null
-function getClosestAllowedSize(target, base) {
+function getValidSize(width, base) {
   const options = [
-    { size: base,     type: 'full' },
+    { size: base, type: 'full' },
     { size: 0.75 * base, type: 'threeq' },
-    { size: 0.5 * base,  type: 'half' }
+    { size: 0.5 * base, type: 'half' }
   ];
-  // Sorteer op absolute verschil, maar geef voorrang aan waarden ≤ target
   let best = null;
   for (const opt of options) {
-    if (!best || Math.abs(opt.size - target) < Math.abs(best.size - target)) {
+    if (opt.size <= width + 0.1 && (!best || opt.size > best.size)) {
       best = opt;
     }
   }
-  return best;
+  return best; // <-- GEEN fallback
 }
 
 function buildRow(verband, rowIndex, L, D, maxB, sv) {
@@ -124,7 +121,17 @@ function buildRow(verband, rowIndex, L, D, maxB, sv) {
   switch (verband) {
     case 'halfsteen':
       if (rowIndex % 2 === 0) sequence = [{ isKop: false, base: L }];
-      else sequence = [{ isKop: false, base: L }]; // start later met halve
+      else {
+        // Begin met halve steen als er ruimte is
+        if (L/2 <= maxB) {
+          stones.push({ x: 0, width: L/2, isKop: false, type: 'half' });
+          x = L/2 + sv;
+        } else {
+          // Geen ruimte → stop
+          return stones;
+        }
+        sequence = [{ isKop: false, base: L }];
+      }
       break;
     case 'kruis':
       if (rowIndex % 2 === 0) sequence = [{ isKop: false, base: L }];
@@ -158,123 +165,20 @@ function buildRow(verband, rowIndex, L, D, maxB, sv) {
 
   if (verband === 'claustra') return stones;
 
-  // Speciale behandeling voor oneven rijen bij halfsteen
-  let offset = 0;
-  if (verband === 'halfsteen' && rowIndex % 2 === 1) {
-    // Begin met halve steen
-    const half = 0.5 * L;
-    if (half <= maxB) {
-      stones.push({ x: 0, width: half, isKop: false, type: 'half' });
-      x = half + sv;
-    } else {
-      // Geen ruimte → geen stenen
-      return [];
-    }
-  }
-
-  // Bepaal basislengte voor deze rij
-  const base = sequence[0].base;
-
-  // Simuleer hoeveel volle stenen er zouden passen vanaf x
-  let count = 0;
-  let simulatedX = x;
-  while (true) {
-    const nextEnd = simulatedX + base;
-    if (nextEnd <= maxB + 1e-9) {
-      count++;
-      simulatedX = nextEnd + sv;
-    } else {
-      break;
-    }
-  }
-
-  if (count === 0) {
-    // Probeer één steen van toegestaan formaat
+  let idx = 0;
+  while (x < maxB) {
+    const item = sequence[idx % sequence.length];
     const rest = maxB - x;
-    const allowed = getClosestAllowedSize(rest, base);
-    if (allowed && allowed.size >= 0.5 * base - 1e-9) {
-      stones.push({ x, width: allowed.size, isKop: sequence[0].isKop, type: allowed.type });
+    if (rest < Math.min(0.5 * item.base, 1)) break; // minimale steengrootte
+
+const valid = getValidSize(rest, item.base);
+if (!valid) break; // <-- stop als niets past
+stones.push({ x, width: valid.size, isKop: item.isKop, type: valid.type });
+x += valid.size + sv;
     }
-    return stones;
+    idx++;
+    if (idx > 100) break;
   }
-
-  // Bereken totale lengte met 'count' volle stenen
-  const totalWithFull = x + count * base + (count - 1) * sv;
-  const remainingSpace = maxB - totalWithFull;
-
-  if (Math.abs(remainingSpace) <= 1e-9) {
-    // Perfecte fit
-    for (let i = 0; i < count; i++) {
-      stones.push({ x: x + i * (base + sv), width: base, isKop: sequence[0].isKop, type: 'full' });
-    }
-  } else if (remainingSpace > 0) {
-    // Ruimte over → probeer laatste steen groter te maken (maar alleen naar toegestaan formaat)
-    const targetLast = base + remainingSpace;
-    const allowed = getClosestAllowedSize(targetLast, base);
-    if (allowed.size >= base) {
-      // Gebruik allowed.size, maar dan moet je misschien minder stenen nemen
-      // Simpelere aanpak: gebruik (count-1) volle stenen + 1 aangepaste
-      if (count >= 1) {
-        for (let i = 0; i < count - 1; i++) {
-          stones.push({ x: x + i * (base + sv), width: base, isKop: sequence[0].isKop, type: 'full' });
-        }
-        const lastX = x + (count - 1) * (base + sv);
-        const lastWidth = maxB - lastX;
-        const lastAllowed = getClosestAllowedSize(lastWidth, base);
-        if (lastAllowed && lastAllowed.size >= 0.5 * base - 1e-9) {
-          stones.push({ x: lastX, width: lastAllowed.size, isKop: sequence[0].isKop, type: lastAllowed.type });
-        } else {
-          // Fallback: gebruik gewoon de ruimte (noodoplossing)
-          stones.push({ x: lastX, width: lastWidth, isKop: sequence[0].isKop, type: 'custom' });
-        }
-      } else {
-        // Geen volle stenen → direct aangepaste
-        const allowed = getClosestAllowedSize(maxB - x, base);
-        if (allowed) {
-          stones.push({ x, width: allowed.size, isKop: sequence[0].isKop, type: allowed.type });
-        }
-      }
-    } else {
-      // Gebruik gewoon count volle stenen, laat rest leeg → niet toegestaan!
-      // Dus beter: verminder count met 1 en vul laatste aan
-      if (count >= 2) {
-        for (let i = 0; i < count - 1; i++) {
-          stones.push({ x: x + i * (base + sv), width: base, isKop: sequence[0].isKop, type: 'full' });
-        }
-        const lastX = x + (count - 1) * (base + sv);
-        const lastWidth = maxB - lastX;
-        const lastAllowed = getClosestAllowedSize(lastWidth, base);
-        if (lastAllowed && lastAllowed.size >= 0.5 * base - 1e-9) {
-          stones.push({ x: lastX, width: lastAllowed.size, isKop: sequence[0].isKop, type: lastAllowed.type });
-        }
-      } else {
-        // Alleen 1 steen mogelijk → pas aan
-        const allowed = getClosestAllowedSize(maxB - x, base);
-        if (allowed) {
-          stones.push({ x, width: allowed.size, isKop: sequence[0].isKop, type: allowed.type });
-        }
-      }
-    }
-  } else {
-    // Te veel gebruikt → verwijder laatste steen en vul rest aan
-    if (count >= 2) {
-      for (let i = 0; i < count - 1; i++) {
-        stones.push({ x: x + i * (base + sv), width: base, isKop: sequence[0].isKop, type: 'full' });
-      }
-      const lastX = x + (count - 1) * (base + sv);
-      const lastWidth = maxB - lastX;
-      const lastAllowed = getClosestAllowedSize(lastWidth, base);
-      if (lastAllowed && lastAllowed.size >= 0.5 * base - 1e-9) {
-        stones.push({ x: lastX, width: lastAllowed.size, isKop: sequence[0].isKop, type: lastAllowed.type });
-      }
-    } else if (count === 1) {
-      const allowed = getClosestAllowedSize(maxB - x, base);
-      if (allowed) {
-        stones.push({ x, width: allowed.size, isKop: sequence[0].isKop, type: allowed.type });
-      }
-    }
-  }
-
   return stones;
 }
 
