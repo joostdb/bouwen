@@ -62,7 +62,7 @@
 <p><small>Rij 0 = onderste rij • Rechte randen • Alleen 1 / ¾ / ½ stenen + custom rest</small></p>
 
 <div class="input-group">
-  <label>Muurhoogte (mm) <input id="H" type="number" value="1080" min="50" max="5000"></label>
+  <label>Muurhoogte (mm) <input id="H" type="number" value="1084" min="50" max="5000"></label>
   <label>Muurbreedte (mm) <input id="B" type="number" value="1000" min="100" max="5000"></label>
   <label>Steen lengte <input id="L" type="number" value="210" min="100" max="400"></label>
   <label>Steen breedte <input id="D" type="number" value="100" min="50" max="200"></label>
@@ -118,17 +118,14 @@ function buildRow(verband, rowIndex, L, D, maxB, sv) {
   let x = 0;
   let sequence = [];
 
-  // Hulpfunctie om basis te bepalen per item
-  const getBase = (item) => item.isKop ? D : L;
-
   switch (verband) {
     case 'halfsteen':
       if (rowIndex % 2 === 0) {
         sequence = [{ isKop: false, base: L }];
       } else {
-        if (L/2 <= maxB) {
-          stones.push({ x: 0, width: L/2, isKop: false, type: 'half' });
-          x = L/2 + sv;
+        if (L / 2 <= maxB) {
+          stones.push({ x: 0, width: L / 2, isKop: false, type: 'half' });
+          x = L / 2 + sv;
         } else {
           return stones;
         }
@@ -136,8 +133,11 @@ function buildRow(verband, rowIndex, L, D, maxB, sv) {
       }
       break;
     case 'kruis':
-      if (rowIndex % 2 === 0) sequence = [{ isKop: false, base: L }];
-      else sequence = [{ isKop: true, base: D }];
+      if (rowIndex % 2 === 0) {
+        sequence = [{ isKop: false, base: L }];
+      } else {
+        sequence = [{ isKop: true, base: D }];
+      }
       break;
     case 'stapel':
     case 'wild':
@@ -182,40 +182,31 @@ function buildRow(verband, rowIndex, L, D, maxB, sv) {
     if (idx > 100) break;
   }
 
-  // >>> NU: vul rest op zonder regels te overtreden <<<
+  // >>> VUL REST OP MET BEHOUD VAN ALLE REGELS <<<
   const remaining = maxB - x;
   if (remaining > 0.1 && stones.length > 0) {
     const last = stones[stones.length - 1];
-    const lastBase = getBase(last); // L of D
+    const lastBase = last.isKop ? D : L; // cruciaal!
     const minAllowed = 0.25 * lastBase;
 
     if (remaining >= minAllowed && remaining <= last.width) {
-      // Veilig: afzagen van bestaande steen
+      // Afzagen toegestaan
       stones[stones.length - 1] = { ...last, width: remaining, type: 'custom' };
     } else if (remaining < minAllowed) {
       // Te klein: verwijder laatste steen
       stones.pop();
       const newStart = last.x;
       const newSpace = maxB - newStart;
-      const fullSize = lastBase; // volle steen als referentie
+      const fullSize = lastBase; // juiste basis!
 
-      if (newSpace <= fullSize && newSpace >= minAllowed) {
-        // Gebruik volle steen, afgezaagd tot newSpace
+      if (newSpace >= minAllowed && newSpace <= fullSize) {
         stones.push({ x: newStart, width: newSpace, isKop: last.isKop, type: 'custom' });
-      } else if (newSpace < minAllowed) {
-        // Zelfs na terugdraaien te klein → niet vullen (maar dit zou niet mogen voorkomen)
-        // Optioneel: laat lege ruimte, of forceer toch (niet aanbevolen)
-        // Wij kiezen: laat originele laatste steen staan → geen vulling
-        stones.push(last);
       } else {
-        // newSpace > fullSize → we mogen NIET vergroten!
-        // Dus: hou laatste steen zoals ze was → lege ruimte blijft
+        // Kan niet veilig vullen → hou origineel (of laat leeg, maar we kiezen origineel)
         stones.push(last);
       }
-    } else {
-      // remaining > last.width → we mogen NIET vergroten!
-      // Laat laatste steen onaangetast
     }
+    // Als remaining > last.width: NIET vergroten → laat onaangetast
   }
 
   return stones;
