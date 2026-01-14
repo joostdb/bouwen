@@ -62,7 +62,7 @@
 <p><small>Rij 0 = onderste rij • Rechte randen • Alleen 1 / ¾ / ½ stenen + custom rest</small></p>
 
 <div class="input-group">
-  <label>Muurhoogte (mm) <input id="H" type="number" value="1080" min="50" max="5000"></label>
+  <label>Muurhoogte (mm) <input id="H" type="number" value="1084" min="50" max="5000"></label>
   <label>Muurbreedte (mm) <input id="B" type="number" value="1000" min="100" max="5000"></label>
   <label>Steen lengte <input id="L" type="number" value="210" min="100" max="400"></label>
   <label>Steen breedte <input id="D" type="number" value="100" min="50" max="200"></label>
@@ -118,10 +118,15 @@ function buildRow(verband, rowIndex, L, D, maxB, sv) {
   let x = 0;
   let sequence = [];
 
+  // Bepaal basis voor eventuele fallback
+  let baseForFallback = L;
+
   switch (verband) {
     case 'halfsteen':
-      if (rowIndex % 2 === 0) sequence = [{ isKop: false, base: L }];
-      else {
+      if (rowIndex % 2 === 0) {
+        sequence = [{ isKop: false, base: L }];
+        baseForFallback = L;
+      } else {
         if (L/2 <= maxB) {
           stones.push({ x: 0, width: L/2, isKop: false, type: 'half' });
           x = L/2 + sv;
@@ -129,24 +134,34 @@ function buildRow(verband, rowIndex, L, D, maxB, sv) {
           return stones;
         }
         sequence = [{ isKop: false, base: L }];
+        baseForFallback = L;
       }
       break;
     case 'kruis':
-      if (rowIndex % 2 === 0) sequence = [{ isKop: false, base: L }];
-      else sequence = [{ isKop: true, base: D }];
+      if (rowIndex % 2 === 0) {
+        sequence = [{ isKop: false, base: L }];
+        baseForFallback = L;
+      } else {
+        sequence = [{ isKop: true, base: D }];
+        baseForFallback = D;
+      }
       break;
     case 'stapel':
     case 'wild':
       sequence = [{ isKop: false, base: L }];
+      baseForFallback = L;
       break;
     case 'staand':
       sequence = [{ isKop: true, base: D }];
+      baseForFallback = D;
       break;
     case 'klezoor':
       sequence = [{ isKop: false, base: L }, { isKop: true, base: D }];
+      baseForFallback = L; // meestal langer
       break;
     case 'ketting':
       sequence = [{ isKop: false, base: L }, { isKop: false, base: L }, { isKop: true, base: D }];
+      baseForFallback = L;
       break;
     case 'claustra':
       while (x < maxB) {
@@ -159,6 +174,7 @@ function buildRow(verband, rowIndex, L, D, maxB, sv) {
       return stones;
     default:
       sequence = [{ isKop: false, base: L }];
+      baseForFallback = L;
   }
 
   if (verband === 'claustra') return stones;
@@ -178,12 +194,23 @@ function buildRow(verband, rowIndex, L, D, maxB, sv) {
     if (idx > 100) break;
   }
 
-  // >>> VUL REST OP MET CUSTOM, MAAR ALLEEN ALS HET EEN AFZAGING IS (dus ≤ toegestaan formaat) <<<
   const remaining = maxB - x;
-  if (remaining > 0.1 && stones.length > 0) {
-    // We voegen geen losse steen toe, maar we weten dat remaining < 0.5 * base
-    // Dus het is veilig om af te zagen van een halve steen
-    stones.push({ x, width: remaining, isKop: false, type: 'custom' });
+  const minAllowed = 0.25 * baseForFallback;
+
+  if (remaining > 0.1) {
+    if (remaining >= minAllowed) {
+      // Veilig om als custom te plaatsen
+      stones.push({ x, width: remaining, isKop: false, type: 'custom' });
+    } else if (stones.length > 0) {
+      // Restant te klein → verwijder laatste steen en vul grotere ruimte
+      const last = stones.pop();
+      const newStart = last.x;
+      const newWidth = maxB - newStart; // ≥ minAllowed (want we had al ≥ 0.5*base geplaatst)
+      stones.push({ x: newStart, width: newWidth, isKop: last.isKop, type: 'custom' });
+    } else {
+      // Geen stenen, maar wel ruimte → plaats één custom (minstens minAllowed door invoervalidatie)
+      stones.push({ x: 0, width: maxB, isKop: sequence[0].isKop, type: 'custom' });
+    }
   }
 
   return stones;
